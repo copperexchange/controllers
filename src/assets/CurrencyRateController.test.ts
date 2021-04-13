@@ -1,13 +1,34 @@
 import 'isomorphic-fetch';
 import { stub } from 'sinon';
-import CurrencyRateController from './CurrencyRateController';
+import { ControllerMessenger } from '../ControllerMessenger';
+import {
+  CurrencyRateController,
+  CurrencyRateStateChange,
+} from './CurrencyRateController';
+
+const name = 'CurrencyRateController';
+
+function getRestrictedMessenger() {
+  const controllerMessenger = new ControllerMessenger<
+    any,
+    CurrencyRateStateChange
+  >();
+  const messenger = controllerMessenger.getRestricted<
+    'CurrencyRateController',
+    never,
+    never
+  >({
+    name,
+  });
+  return messenger;
+}
 
 describe('CurrencyRateController', () => {
   it('should set default state', () => {
     const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      {},
-      {},
+      { messenger },
       fetchExchangeRateStub,
     );
     expect(controller.state).toStrictEqual({
@@ -15,54 +36,40 @@ describe('CurrencyRateController', () => {
       conversionRate: 0,
       currentCurrency: 'usd',
       nativeCurrency: 'ETH',
-      usdConversionRate: 0,
+      pendingCurrentCurrency: null,
+      pendingNativeCurrency: null,
+      usdConversionRate: null,
     });
 
-    controller.disabled = true;
+    controller.destroy();
   });
 
-  it('should initialize with the default config', () => {
+  it('should initialize with initial state', () => {
     const fetchExchangeRateStub = stub();
-    const controller = new CurrencyRateController(
-      {},
-      {},
-      fetchExchangeRateStub,
-    );
-    expect(controller.config).toStrictEqual({
-      currentCurrency: 'usd',
-      disabled: false,
-      interval: 180000,
-      nativeCurrency: 'ETH',
-      includeUSDRate: false,
-    });
-
-    controller.disabled = true;
-  });
-
-  it('should initialize with the currency in state', () => {
-    const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const existingState = { currentCurrency: 'rep' };
     const controller = new CurrencyRateController(
-      {},
-      existingState,
+      { messenger, state: existingState },
       fetchExchangeRateStub,
     );
-    expect(controller.config).toStrictEqual({
+    expect(controller.state).toStrictEqual({
+      conversionDate: 0,
+      conversionRate: 0,
       currentCurrency: 'rep',
-      disabled: false,
-      interval: 180000,
       nativeCurrency: 'ETH',
-      includeUSDRate: false,
+      pendingCurrentCurrency: null,
+      pendingNativeCurrency: null,
+      usdConversionRate: null,
     });
 
-    controller.disabled = true;
+    controller.destroy();
   });
 
   it('should throw when currentCurrency property is accessed', () => {
     const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      {},
-      {},
+      { messenger },
       fetchExchangeRateStub,
     );
     expect(() => console.log(controller.currentCurrency)).toThrow(
@@ -72,9 +79,9 @@ describe('CurrencyRateController', () => {
 
   it('should throw when nativeCurrency property is accessed', () => {
     const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      {},
-      {},
+      { messenger },
       fetchExchangeRateStub,
     );
     expect(() => console.log(controller.nativeCurrency)).toThrow(
@@ -84,9 +91,9 @@ describe('CurrencyRateController', () => {
 
   it('should poll and update rate in the right interval', async () => {
     const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      { interval: 100 },
-      {},
+      { interval: 100, messenger },
       fetchExchangeRateStub,
     );
 
@@ -96,61 +103,76 @@ describe('CurrencyRateController', () => {
     await new Promise<void>((resolve) => setTimeout(() => resolve(), 150));
     expect(fetchExchangeRateStub.calledTwice).toBe(true);
 
-    controller.disabled = true;
-  });
-
-  it('should not update rates if disabled', async () => {
-    const fetchExchangeRateStub = stub().resolves({});
-    const controller = new CurrencyRateController(
-      { interval: 10 },
-      {},
-      fetchExchangeRateStub,
-    );
-    controller.disabled = true;
-
-    await controller.updateExchangeRate();
-    expect(fetchExchangeRateStub.called).toBe(false);
+    controller.destroy();
   });
 
   it('should clear previous interval', async () => {
     const fetchExchangeRateStub = stub();
+    const messenger = getRestrictedMessenger();
     const mock = stub(global, 'clearTimeout');
     const controller = new CurrencyRateController(
-      { interval: 1337 },
-      {},
+      { interval: 1337, messenger },
       fetchExchangeRateStub,
     );
     await new Promise<void>((resolve) => {
       setTimeout(() => {
-        controller.poll(1338);
+        controller.poll();
         expect(mock.called).toBe(true);
         mock.restore();
 
-        controller.disabled = true;
+        controller.destroy();
         resolve();
       }, 100);
     });
   });
 
-  it('should update currency', async () => {
+  it('should update exchange rate', async () => {
     const fetchExchangeRateStub = stub().resolves({ conversionRate: 10 });
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      { interval: 10 },
-      {},
+      { interval: 10, messenger },
       fetchExchangeRateStub,
     );
     expect(controller.state.conversionRate).toStrictEqual(0);
     await controller.updateExchangeRate();
     expect(controller.state.conversionRate).toStrictEqual(10);
 
-    controller.disabled = true;
+    controller.destroy();
   });
 
-  it('should add usd rate to state when includeUSDRate is configured true', async () => {
-    const fetchExchangeRateStub = stub().resolves({});
+  it('should update current currency', async () => {
+    const fetchExchangeRateStub = stub().resolves({ conversionRate: 10 });
+    const messenger = getRestrictedMessenger();
     const controller = new CurrencyRateController(
-      { includeUSDRate: true, currentCurrency: 'xyz' },
-      {},
+      { interval: 10, messenger },
+      fetchExchangeRateStub,
+    );
+    expect(controller.state.conversionRate).toStrictEqual(0);
+    await controller.setCurrentCurrency('CAD');
+    expect(controller.state.conversionRate).toStrictEqual(10);
+
+    controller.destroy();
+  });
+
+  it('should update native currency', async () => {
+    const fetchExchangeRateStub = stub().resolves({ conversionRate: 10 });
+    const messenger = getRestrictedMessenger();
+    const controller = new CurrencyRateController(
+      { interval: 10, messenger },
+      fetchExchangeRateStub,
+    );
+    expect(controller.state.conversionRate).toStrictEqual(0);
+    await controller.setNativeCurrency('xDAI');
+    expect(controller.state.conversionRate).toStrictEqual(10);
+
+    controller.destroy();
+  });
+
+  it('should add usd rate to state when includeUsdRate is configured true', async () => {
+    const fetchExchangeRateStub = stub().resolves({});
+    const messenger = getRestrictedMessenger();
+    const controller = new CurrencyRateController(
+      { includeUsdRate: true, messenger, state: { currentCurrency: 'xyz' } },
       fetchExchangeRateStub,
     );
 
@@ -159,5 +181,7 @@ describe('CurrencyRateController', () => {
     expect(
       fetchExchangeRateStub.alwaysCalledWithExactly('xyz', 'ETH', true),
     ).toBe(true);
+
+    controller.destroy();
   });
 });
