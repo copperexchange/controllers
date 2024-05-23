@@ -65,7 +65,7 @@
     "single-call-balance-checker-abi": "^1.0.0",
     "uuid": "^8.3.2",
     "web3": "^0.20.7",
-    "web3-provider-engine": "^16.0.1"
+    "web3-provider-engine": "^17.0.0"
   },
   "devDependencies": {
     "@metamask/eslint-config": "^6.0.0",
